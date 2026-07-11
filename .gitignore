@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+RecipeDB3_random2k.csv
+semantic_analysis_results.csv
+semantic_duplicates.csv
+missing_semantic_fields.csv

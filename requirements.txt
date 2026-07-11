@@ -1,0 +1,6 @@
+pandas
+numpy
+sentence-transformers
+transformers
+langdetect
+torch
