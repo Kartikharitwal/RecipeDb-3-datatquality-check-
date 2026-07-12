@@ -2,18 +2,12 @@ import pandas as pd
 import numpy as np
 
 from sentence_transformers import SentenceTransformer, util
-from transformers import pipeline
+# from transformers import pipeline
+from sklearn.metrics.pairwise import cosine_similarity
 from langdetect import detect
-
-############################################################
-# Load data
-############################################################
 
 df = pd.read_csv("RecipeDB3_random2k.csv")
 
-############################################################
-# Fill missing values
-############################################################
 
 text_columns = [
     "Recipe Name",
@@ -22,45 +16,38 @@ text_columns = [
     "Description",
     "Cuisine",
     "Category",
-    "Keywords",
+    "Keywords"
 ]
 
 for c in text_columns:
     if c in df.columns:
         df[c] = df[c].fillna("").astype(str)
 
-############################################################
-# Load models
-############################################################
 
 print("Loading Sentence-BERT...")
 
+# model = SentenceTransformer(
+#     "sentence-transformers/all-MiniLM-L6-v2"
+# )
 model = SentenceTransformer(
-    "sentence-transformers/all-MiniLM-L6-v2"
+    "sentence-transformers/paraphrase-MiniLM-L3-v2"
 )
 
 print("Loading Zero-shot model...")
 
-classifier = pipeline(
-    "zero-shot-classification",
-    model="facebook/bart-large-mnli"
-)
+# classifier = pipeline(
+#     "zero-shot-classification",
+#     model="facebook/bart-large-mnli"
+# )
 
-############################################################
-# Sentence-BERT Similarity
-############################################################
+def similarity(a,b):
 
-def similarity(a, b):
-
-    emb = model.encode([a, b], convert_to_tensor=True)
+    emb = model.encode([a,b],convert_to_tensor=True)
 
     return float(
-        util.cos_sim(emb[0], emb[1])
+        util.cos_sim(emb[0],emb[1])
     )
 
-############################################################
-# Semantic Similarities
-############################################################
 
 df["Title_Ingredients_Similarity"] = df.apply(
     lambda x: similarity(
@@ -102,9 +89,6 @@ df["Description_Directions_Similarity"] = df.apply(
     axis=1
 )
 
-############################################################
-# Language Validation
-############################################################
 
 def detect_language(text):
 
@@ -124,30 +108,60 @@ df["Language_Match"] = (
     df["Language"]
 )
 
-############################################################
-# Zero-shot Category Validation
-############################################################
-
 categories = sorted(
     df["Category"].dropna().unique().tolist()
 )
 
-def predict_category(row):
+# def predict_category(row):
 
-    if row["Description"] == "":
+#     if row["Description"]=="":
 
+#         return ""
+
+#     result = classifier(
+#         row["Description"],
+#         candidate_labels=categories
+#     )
+
+#     return result["labels"][0]
+
+# df["Predicted_Category"] = df.apply(
+#     predict_category,
+#     axis=1
+# )
+
+# df["Category_Match"] = (
+#     df["Predicted_Category"]
+#     ==
+#     df["Category"]
+# )
+
+categories = sorted(df["Category"].dropna().unique().tolist())
+
+category_embeddings = model.encode(
+    categories,
+    convert_to_tensor=False
+)
+
+def predict_category(description):
+
+    if description.strip() == "":
         return ""
 
-    result = classifier(
-        row["Description"],
-        candidate_labels=categories
+    description_embedding = model.encode(
+        [description],
+        convert_to_tensor=False
     )
 
-    return result["labels"][0]
+    similarities = cosine_similarity(
+        description_embedding,
+        category_embeddings
+    )[0]
 
-df["Predicted_Category"] = df.apply(
-    predict_category,
-    axis=1
+    return categories[np.argmax(similarities)]
+
+df["Predicted_Category"] = df["Description"].apply(
+    predict_category
 )
 
 df["Category_Match"] = (
@@ -156,30 +170,60 @@ df["Category_Match"] = (
     df["Category"]
 )
 
-############################################################
-# Zero-shot Cuisine Validation
-############################################################
+# cuisines = sorted(
+#     df["Cuisine"].dropna().unique().tolist()
+# )
 
-cuisines = sorted(
-    df["Cuisine"].dropna().unique().tolist()
+# def predict_cuisine(row):
+
+#     if row["Description"]=="":
+
+#         return ""
+
+#     result = classifier(
+#         row["Description"],
+#         candidate_labels=cuisines
+#     )
+
+#     return result["labels"][0]
+
+# df["Predicted_Cuisine"] = df.apply(
+#     predict_cuisine,
+#     axis=1
+# )
+
+# df["Cuisine_Match"] = (
+#     df["Predicted_Cuisine"]
+#     ==
+#     df["Cuisine"]
+# )
+
+cuisines = sorted(df["Cuisine"].dropna().unique().tolist())
+
+cuisine_embeddings = model.encode(
+    cuisines,
+    convert_to_tensor=False
 )
 
-def predict_cuisine(row):
+def predict_cuisine(description):
 
-    if row["Description"] == "":
-
+    if description.strip() == "":
         return ""
 
-    result = classifier(
-        row["Description"],
-        candidate_labels=cuisines
+    description_embedding = model.encode(
+        [description],
+        convert_to_tensor=False
     )
 
-    return result["labels"][0]
+    similarities = cosine_similarity(
+        description_embedding,
+        cuisine_embeddings
+    )[0]
 
-df["Predicted_Cuisine"] = df.apply(
-    predict_cuisine,
-    axis=1
+    return cuisines[np.argmax(similarities)]
+
+df["Predicted_Cuisine"] = df["Description"].apply(
+    predict_cuisine
 )
 
 df["Cuisine_Match"] = (
@@ -187,10 +231,6 @@ df["Cuisine_Match"] = (
     ==
     df["Cuisine"]
 )
-
-############################################################
-# Duplicate Detection
-############################################################
 
 print("Encoding titles...")
 
@@ -208,7 +248,7 @@ for i in range(len(df)):
         title_embeddings
     )[0]
 
-    for j in range(i + 1, len(df)):
+    for j in range(i+1,len(df)):
 
         if sims[j] > 0.90:
 
@@ -229,10 +269,6 @@ dup_df = pd.DataFrame(
     ]
 )
 
-############################################################
-# Missing semantic fields
-############################################################
-
 semantic_cols = [
     "Recipe Name",
     "Ingredients",
@@ -242,9 +278,6 @@ semantic_cols = [
 
 missing_report = df[semantic_cols].isnull().sum()
 
-############################################################
-# Save outputs
-############################################################
 
 df.to_csv(
     "semantic_analysis_results.csv",
@@ -259,8 +292,6 @@ dup_df.to_csv(
 missing_report.to_csv(
     "missing_semantic_fields.csv"
 )
-
-############################################################
 
 print("Completed.")
 print("Results saved.")
